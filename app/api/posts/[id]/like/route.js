@@ -1,68 +1,90 @@
 import { NextResponse } from "next/server";
-import clientPromise from "../../../../../lib/mongodb";
-import { ObjectId } from "mongodb";
-import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
+import connectDB from "@/lib/mongodb";
+import Like from "@/models/Like";
+import Post from "@/models/Post";
+import { getUserFromToken } from "@/lib/auth";
 
-function getUserFromRequest(request) {
-  const token = request.cookies.get("token")?.value;
-
-  if (!token) {
-    return null;
-  }
-
+export async function GET(request, { params }) {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET);
-  } catch {
-    return null;
+    await connectDB();
+    const { id } = await params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { message: "올바르지 않은 게시글 ID입니다." },
+        { status: 400 }
+      );
+    }
+
+    const post = await Post.findById(id).select("likeCount").lean();
+    if (!post) {
+      return NextResponse.json(
+        { message: "존재하지 않는 게시글입니다." },
+        { status: 404 }
+      );
+    }
+
+    const user = getUserFromToken(request);
+    let liked = false;
+
+    if (user) {
+      const existingLike = await Like.findOne({
+        postId: id,
+        userId: user.userId,
+      });
+      liked = Boolean(existingLike);
+    }
+
+    return NextResponse.json(
+      {
+        liked,
+        likeCount: post.likeCount || 0,
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("좋아요 상태 조회 오류:", error);
+    return NextResponse.json(
+      { message: "좋아요 조회 중 오류가 발생했습니다." },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(request, { params }) {
   try {
-    const user = getUserFromRequest(request);
+    await connectDB();
+    const user = getUserFromToken(request);
 
     if (!user) {
       return NextResponse.json(
-        {
-          message: "로그인이 필요합니다.",
-        },
+        { message: "로그인이 필요합니다." },
         { status: 401 }
       );
     }
 
     const { id } = await params;
 
-    if (!ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        {
-          message: "올바르지 않은 게시글 ID입니다.",
-        },
+        { message: "올바르지 않은 게시글 ID입니다." },
         { status: 400 }
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("neighborly");
-
-    const postId = new ObjectId(id);
-    const userId = new ObjectId(user.userId);
-
-    const post = await db.collection("Post").findOne({
-      _id: postId,
-    });
+    const post = await Post.findById(id);
 
     if (!post) {
       return NextResponse.json(
-        {
-          message: "존재하지 않는 게시글입니다.",
-        },
+        { message: "존재하지 않는 게시글입니다." },
         { status: 404 }
       );
     }
 
-    const existingLike = await db.collection("Like").findOne({
-      postId,
-      userId,
+    const existingLike = await Like.findOne({
+      postId: id,
+      userId: user.userId,
     });
 
     if (existingLike) {
@@ -70,47 +92,36 @@ export async function POST(request, { params }) {
         {
           message: "이미 좋아요를 누른 게시글입니다.",
           liked: true,
-          likeCount: post.likeCount || 0,
+          likeCount: post.likeCount,
         },
         { status: 200 }
       );
     }
 
-    await db.collection("Like").insertOne({
-      postId,
-      userId,
+    await Like.create({
+      postId: id,
+      userId: user.userId,
       createdAt: new Date(),
     });
 
-    const result = await db.collection("Post").findOneAndUpdate(
-      {
-        _id: postId,
-      },
-      {
-        $inc: {
-          likeCount: 1,
-        },
-      },
-      {
-        returnDocument: "after",
-      }
+    const updatedPost = await Post.findByIdAndUpdate(
+      id,
+      { $inc: { likeCount: 1 } },
+      { new: true }
     );
 
     return NextResponse.json(
       {
         message: "좋아요를 눌렀습니다.",
         liked: true,
-        likeCount: result?.likeCount || 1,
+        likeCount: updatedPost.likeCount,
       },
       { status: 200 }
     );
   } catch (error) {
     console.error("좋아요 처리 오류:", error);
-
     return NextResponse.json(
-      {
-        message: "좋아요 처리 중 오류가 발생했습니다.",
-      },
+      { message: "좋아요 처리 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }
@@ -118,85 +129,67 @@ export async function POST(request, { params }) {
 
 export async function DELETE(request, { params }) {
   try {
-    const user = getUserFromRequest(request);
+    await connectDB();
+    const user = getUserFromToken(request);
 
     if (!user) {
       return NextResponse.json(
-        {
-          message: "로그인이 필요합니다.",
-        },
+        { message: "로그인이 필요합니다." },
         { status: 401 }
       );
     }
 
     const { id } = await params;
 
-    if (!ObjectId.isValid(id)) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json(
-        {
-          message: "올바르지 않은 게시글 ID입니다.",
-        },
+        { message: "올바르지 않은 게시글 ID입니다." },
         { status: 400 }
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("neighborly");
-
-    const postId = new ObjectId(id);
-    const userId = new ObjectId(user.userId);
-
-    const like = await db.collection("Like").findOne({
-      postId,
-      userId,
+    const like = await Like.findOne({
+      postId: id,
+      userId: user.userId,
     });
 
     if (!like) {
+      const currentPost = await Post.findById(id).select("likeCount");
       return NextResponse.json(
         {
           message: "좋아요를 누르지 않은 게시글입니다.",
           liked: false,
+          likeCount: currentPost?.likeCount || 0,
         },
         { status: 200 }
       );
     }
 
-    await db.collection("Like").deleteOne({
-      _id: like._id,
-    });
+    await Like.deleteOne({ _id: like._id });
 
-    const result = await db.collection("Post").findOneAndUpdate(
-      {
-        _id: postId,
-        likeCount: {
-          $gt: 0,
-        },
-      },
-      {
-        $inc: {
-          likeCount: -1,
-        },
-      },
-      {
-        returnDocument: "after",
-      }
+    const updatedPost = await Post.findByIdAndUpdate(
+      id,
+      { $inc: { likeCount: -1 } },
+      { new: true }
     );
+
+    const safeCount = Math.max(0, updatedPost?.likeCount || 0);
+    if (updatedPost && updatedPost.likeCount < 0) {
+      await Post.findByIdAndUpdate(id, { likeCount: 0 });
+    }
 
     return NextResponse.json(
       {
         message: "좋아요를 취소했습니다.",
         liked: false,
-        likeCount: result?.likeCount || 0,
+        likeCount: safeCount,
       },
       { status: 200 }
     );
   } catch (error) {
     console.error("좋아요 취소 오류:", error);
-
     return NextResponse.json(
-      {
-        message: "좋아요 취소 중 오류가 발생했습니다.",
-      },
+      { message: "좋아요 취소 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }

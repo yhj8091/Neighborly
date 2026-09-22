@@ -24,7 +24,16 @@ const PostSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: ["맛집", "카페", "행사", "생활정보"],
+      enum: ["맛집", "카페", "행사", "생활정보", "기타"],
+      default: "생활정보",
+    },
+
+    neighborhood: {
+      type: String,
+      required: true,
+      default: "역삼동",
+      trim: true,
+      index: true,
     },
 
     imageUrl: {
@@ -38,6 +47,11 @@ const PostSchema = new mongoose.Schema(
     },
 
     commentCount: {
+      type: Number,
+      default: 0,
+    },
+
+    views: {
       type: Number,
       default: 0,
     },
@@ -57,5 +71,4 @@ const PostSchema = new mongoose.Schema(
   }
 );
 
-export default mongoose.models.Post ||
-  mongoose.model("Post", PostSchema);
+export default mongoose.models.Post || mongoose.model("Post", PostSchema);

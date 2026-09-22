@@ -45,7 +45,6 @@ export default function LoginPage() {
       }
 
       alert(`${data.user.nickname}님, 환영합니다!`);
-
       router.push("/");
       router.refresh();
     } catch (error) {
@@ -71,17 +70,12 @@ export default function LoginPage() {
         <div className="auth-card">
           <div className="auth-header">
             <h1>로그인</h1>
-            <p>
-              우리동네 소식에 오신 것을 환영합니다.
-            </p>
+            <p>우리동네 소식에 오신 것을 환영합니다.</p>
           </div>
 
           <form onSubmit={handleLogin}>
             <div className="form-group">
-              <label htmlFor="userId">
-                아이디
-              </label>
-
+              <label htmlFor="userId">아이디</label>
               <input
                 id="userId"
                 type="text"
@@ -89,14 +83,12 @@ export default function LoginPage() {
                 onChange={(e) => setUserId(e.target.value)}
                 placeholder="아이디를 입력해주세요"
                 autoComplete="username"
+                required
               />
             </div>
 
             <div className="form-group">
-              <label htmlFor="password">
-                비밀번호
-              </label>
-
+              <label htmlFor="password">비밀번호</label>
               <input
                 id="password"
                 type="password"
@@ -104,6 +96,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="비밀번호를 입력해주세요"
                 autoComplete="current-password"
+                required
               />
             </div>
 
@@ -118,7 +111,6 @@ export default function LoginPage() {
 
           <div className="auth-footer">
             <span>아직 회원이 아니신가요?</span>
-
             <button
               type="button"
               onClick={() => router.push("/signup")}

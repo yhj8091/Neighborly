@@ -1,28 +1,75 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
-const PRESET_IMAGES = [
-  { label: "🍜 맛집/음식", url: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=800&q=80" },
-  { label: "☕ 감성 카페", url: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=800&q=80" },
-  { label: "🎪 마을 축제", url: "https://images.unsplash.com/photo-1531058020387-3be344556be6?auto=format&fit=crop&w=800&q=80" },
-  { label: "🏘️ 생활 정보", url: "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=800&q=80" },
-  { label: "🥐 베이커리", url: "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=800&q=80" },
-];
-
-export default function WritePostPage() {
+export default function EditPostPage() {
+  const params = useParams();
   const router = useRouter();
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("생활정보");
   const [imageUrl, setImageUrl] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    if (!params?.id) return;
+    loadPost();
+  }, [params?.id]);
+
+  const loadPost = async () => {
+    try {
+      const [postRes, userRes] = await Promise.all([
+        fetch(`/api/posts/${params.id}`),
+        fetch("/api/auth/me"),
+      ]);
+
+      if (!userRes.ok) {
+        alert("로그인이 필요한 서비스입니다.");
+        router.push("/login");
+        return;
+      }
+
+      const userData = await userRes.json();
+      const postData = await postRes.json();
+
+      if (!postRes.ok) {
+        alert(postData.message || "게시글을 찾을 수 없습니다.");
+        router.push("/posts");
+        return;
+      }
+
+      const post = postData.post;
+
+      // Check author permission
+      const isAuthor =
+        userData.user.id === post.authorId ||
+        userData.user.userId === post.authorId ||
+        userData.user.id === post.author?.id;
+
+      if (!isAuthor) {
+        alert("게시글 수정 권한이 없습니다.");
+        router.push(`/posts/${params.id}`);
+        return;
+      }
+
+      setTitle(post.title || "");
+      setContent(post.content || "");
+      setCategory(post.category || "생활정보");
+      setImageUrl(post.imageUrl || "");
+    } catch (error) {
+      console.error("게시글 로드 오류:", error);
+      alert("게시글 정보를 불러오는 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!title.trim()) {
@@ -35,16 +82,11 @@ export default function WritePostPage() {
       return;
     }
 
-    if (!category) {
-      alert("카테고리를 선택해주세요.");
-      return;
-    }
-
-    setLoading(true);
+    setSubmitting(true);
 
     try {
-      const response = await fetch("/api/posts", {
-        method: "POST",
+      const response = await fetch(`/api/posts/${params.id}`, {
+        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
@@ -59,25 +101,33 @@ export default function WritePostPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        if (response.status === 401) {
-          alert("로그인이 필요합니다. 로그인 화면으로 이동합니다.");
-          router.push("/login");
-          return;
-        }
-        alert(data.message || "게시글 등록에 실패했습니다.");
+        alert(data.message || "게시글 수정에 실패했습니다.");
         return;
       }
 
-      alert("게시글이 성공적으로 등록되었습니다!");
-      router.push(`/posts/${data.post.id}`);
+      alert("게시글이 성공적으로 수정되었습니다.");
+      router.push(`/posts/${params.id}`);
       router.refresh();
     } catch (error) {
-      console.error("게시글 등록 오류:", error);
-      alert("서버와 연결할 수 없습니다.");
+      console.error("게시글 수정 오류:", error);
+      alert("서버와 통신 중 오류가 발생했습니다.");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <main className="page">
+        <Header />
+        <div style={{ maxWidth: "720px", margin: "100px auto", textAlign: "center" }}>
+          <div style={{ fontSize: "32px", marginBottom: "12px" }}>⏳</div>
+          <p style={{ color: "#777" }}>게시글을 불러오는 중입니다...</p>
+        </div>
+        <Footer />
+      </main>
+    );
+  }
 
   return (
     <main className="page">
@@ -96,10 +146,10 @@ export default function WritePostPage() {
         <div className="auth-card" style={{ maxWidth: "100%", padding: "36px" }}>
           <div style={{ marginBottom: "24px" }}>
             <h1 style={{ fontSize: "26px", fontWeight: 800, marginBottom: "8px" }}>
-              동네 소식 작성하기
+              게시글 수정하기
             </h1>
             <p style={{ color: "#777", fontSize: "14px" }}>
-              우리 동네 이웃들에게 유용한 맛집, 카페, 행사, 생활 정보를 나눠주세요.
+              내용을 수정한 후 수정 완료 버튼을 눌러주세요.
             </p>
           </div>
 
@@ -153,7 +203,7 @@ export default function WritePostPage() {
                 id="content"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="동네 이웃들에게 알려주고 싶은 위치, 팁, 상세한 내용을 적어보세요."
+                placeholder="동네 이웃들에게 알려주고 싶은 내용을 적어보세요."
                 maxLength={5000}
                 rows={10}
                 style={{
@@ -171,36 +221,14 @@ export default function WritePostPage() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="imageUrl">대표 사진 (선택)</label>
+              <label htmlFor="imageUrl">대표 사진 URL</label>
               <input
                 id="imageUrl"
                 type="url"
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="사진 이미지 URL을 입력하거나 아래 추천 사진을 클릭하세요"
+                placeholder="사진 이미지 URL을 입력하세요"
               />
-
-              {/* Presets */}
-              <div style={{ display: "flex", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
-                {PRESET_IMAGES.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => setImageUrl(preset.url)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: "20px",
-                      border: imageUrl === preset.url ? "2px solid #75a566" : "1px solid #e0e0e0",
-                      background: imageUrl === preset.url ? "#f0f8ed" : "#fff",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
 
               {imageUrl && (
                 <div style={{ marginTop: "14px", borderRadius: "10px", overflow: "hidden", height: "180px" }}>
@@ -235,10 +263,10 @@ export default function WritePostPage() {
               <button
                 type="submit"
                 className="auth-submit"
-                disabled={loading}
+                disabled={submitting}
                 style={{ flex: 2, margin: 0 }}
               >
-                {loading ? "등록 중..." : "게시글 등록"}
+                {submitting ? "수정 저장 중..." : "수정 완료"}
               </button>
             </div>
           </form>

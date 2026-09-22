@@ -1,91 +1,51 @@
 import { NextResponse } from "next/server";
-import clientPromise from "../../../lib/mongodb";
-import { ObjectId } from "mongodb";
-import jwt from "jsonwebtoken";
-
-function getUserFromRequest(request) {
-  const token = request.cookies.get("token")?.value;
-
-  if (!token) {
-    return null;
-  }
-
-  try {
-    return jwt.verify(token, process.env.JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
+import mongoose from "mongoose";
+import connectDB from "@/lib/mongodb";
+import Comment from "@/models/Comment";
+import Post from "@/models/Post";
+import User from "@/models/User";
+import { getUserFromToken } from "@/lib/auth";
 
 export async function GET(request) {
   try {
+    await connectDB();
     const { searchParams } = new URL(request.url);
     const postId = searchParams.get("postId");
 
-    if (!postId || !ObjectId.isValid(postId)) {
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
       return NextResponse.json(
-        {
-          message: "올바른 게시글 ID가 필요합니다.",
-        },
+        { message: "올바른 게시글 ID가 필요합니다." },
         { status: 400 }
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("neighborly");
+    const comments = await Comment.find({ postId })
+      .populate("authorId", "nickname userId username")
+      .sort({ createdAt: 1 })
+      .lean();
 
-    const comments = await db
-      .collection("Comment")
-      .aggregate([
-        {
-          $match: {
-            postId: new ObjectId(postId),
-          },
-        },
-        {
-          $sort: {
-            createdAt: 1,
-          },
-        },
-        {
-          $lookup: {
-            from: "User",
-            localField: "authorId",
-            foreignField: "_id",
-            as: "author",
-          },
-        },
-        {
-          $unwind: {
-            path: "$author",
-            preserveNullAndEmptyArrays: true,
-          },
-        },
-        {
-          $project: {
-            postId: 1,
-            authorId: 1,
-            content: 1,
-            createdAt: 1,
-            "author.nickname": 1,
-          },
-        },
-      ])
-      .toArray();
+    const formattedComments = comments.map((c) => ({
+      ...c,
+      id: c._id.toString(),
+      author: c.authorId
+        ? {
+            id: c.authorId._id?.toString(),
+            nickname: c.authorId.nickname || "알 수 없음",
+            userId: c.authorId.userId || c.authorId.username,
+          }
+        : { nickname: "알 수 없음" },
+    }));
 
     return NextResponse.json(
       {
-        comments,
+        comments: formattedComments,
       },
       { status: 200 }
     );
   } catch (error) {
     console.error("댓글 조회 오류:", error);
-
     return NextResponse.json(
-      {
-        message: "댓글을 불러오는 중 오류가 발생했습니다.",
-      },
+      { message: "댓글을 불러오는 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }
@@ -93,95 +53,85 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const user = getUserFromRequest(request);
+    await connectDB();
+    const user = getUserFromToken(request);
 
     if (!user) {
       return NextResponse.json(
-        {
-          message: "로그인이 필요합니다.",
-        },
+        { message: "로그인이 필요합니다." },
         { status: 401 }
       );
     }
 
     const body = await request.json();
-
     const { postId, content } = body;
 
-    if (!postId || !ObjectId.isValid(postId)) {
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
       return NextResponse.json(
-        {
-          message: "올바른 게시글 ID가 필요합니다.",
-        },
+        { message: "올바른 게시글 ID가 필요합니다." },
         { status: 400 }
       );
     }
 
     if (!content || !content.trim()) {
       return NextResponse.json(
-        {
-          message: "댓글 내용을 입력해주세요.",
-        },
+        { message: "댓글 내용을 입력해주세요." },
         { status: 400 }
       );
     }
 
     if (content.trim().length > 500) {
       return NextResponse.json(
-        {
-          message: "댓글은 500자 이하로 입력해주세요.",
-        },
+        { message: "댓글은 500자 이하로 입력해주세요." },
         { status: 400 }
       );
     }
 
-    const client = await clientPromise;
-    const db = client.db("neighborly");
-
-    const post = await db.collection("Post").findOne({
-      _id: new ObjectId(postId),
-    });
-
+    const post = await Post.findById(postId);
     if (!post) {
       return NextResponse.json(
-        {
-          message: "존재하지 않는 게시글입니다.",
-        },
+        { message: "존재하지 않는 게시글입니다." },
         { status: 404 }
       );
     }
 
-    const commentData = {
-      postId: new ObjectId(postId),
-      authorId: new ObjectId(user.userId),
+    const newComment = await Comment.create({
+      postId,
+      authorId: user.userId,
       content: content.trim(),
       createdAt: new Date(),
-    };
+    });
 
-    const result = await db
-      .collection("Comment")
-      .insertOne(commentData);
+    await Post.findByIdAndUpdate(postId, {
+      $inc: { commentCount: 1 },
+    });
+
+    const populatedComment = await Comment.findById(newComment._id)
+      .populate("authorId", "nickname userId username")
+      .lean();
 
     return NextResponse.json(
       {
         message: "댓글이 등록되었습니다.",
         comment: {
-          id: result.insertedId.toString(),
-          postId: postId,
-          authorId: user.userId,
-          content: commentData.content,
-          createdAt: commentData.createdAt,
+          id: populatedComment._id.toString(),
+          _id: populatedComment._id.toString(),
+          postId,
+          content: populatedComment.content,
+          createdAt: populatedComment.createdAt,
+          author: {
+            id: user.userId,
+            nickname: user.nickname,
+            userId: user.loginId,
+          },
         },
       },
       { status: 201 }
     );
   } catch (error) {
     console.error("댓글 작성 오류:", error);
-
     return NextResponse.json(
-      {
-        message: "댓글 등록 중 오류가 발생했습니다.",
-      },
+      { message: "댓글 등록 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }

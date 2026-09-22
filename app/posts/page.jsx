@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import PostCard from "@/components/PostCard";
+
+const CATEGORIES = ["전체", "맛집", "카페", "행사", "생활정보", "기타"];
 
 export default function PostsPage() {
   const router = useRouter();
@@ -10,162 +15,155 @@ export default function PostsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("전체");
+  const [sort, setSort] = useState("latest"); // 'latest' | 'popular'
 
   useEffect(() => {
     loadPosts();
-  }, []);
+  }, [category, sort]);
 
   const loadPosts = async () => {
+    setLoading(true);
     try {
-      const response = await fetch("/api/posts");
+      const params = new URLSearchParams();
+      if (category !== "전체") params.append("category", category);
+      if (sort === "popular") params.append("sort", "popular");
 
+      const response = await fetch(`/api/posts?${params.toString()}`);
       const data = await response.json();
 
-      if (!response.ok) {
-        alert(data.message || "게시글을 불러올 수 없습니다.");
-        return;
+      if (response.ok) {
+        setPosts(data.posts || []);
       }
-
-      setPosts(data.posts || []);
     } catch (error) {
-      console.error(error);
-      alert("게시글을 불러오는 중 오류가 발생했습니다.");
+      console.error("게시글 로드 오류:", error);
     } finally {
       setLoading(false);
     }
   };
 
   const filteredPosts = posts.filter((post) => {
-    const matchesSearch =
-      post.title
-        .toLowerCase()
-        .includes(search.toLowerCase()) ||
-      post.content
-        .toLowerCase()
-        .includes(search.toLowerCase());
-
-    const matchesCategory =
-      category === "전체" ||
-      post.category === category;
-
-    return matchesSearch && matchesCategory;
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      post.title?.toLowerCase().includes(q) ||
+      post.content?.toLowerCase().includes(q)
+    );
   });
 
   return (
-    <main className="posts-page">
-      <div className="posts-container">
-        <header className="posts-header">
-          <button
-            className="logo-button"
-            onClick={() => router.push("/")}
-          >
-            🏠 우리동네 소식
-          </button>
+    <main className="page">
+      <Header />
+
+      <div className="content" style={{ minHeight: "80vh", paddingTop: "40px" }}>
+        <div className="content-header">
+          <div>
+            <p className="section-label">COMMUNITY BOARD</p>
+            <h2>우리동네 소식 나눔터</h2>
+            <p style={{ color: "#777", fontSize: "14px", marginTop: "6px" }}>
+              동네 이웃들이 전하는 생생한 소식과 유용한 꿀팁을 확인하세요.
+            </p>
+          </div>
 
           <button
             className="write-button"
+            style={{ marginTop: 0 }}
             onClick={() => router.push("/posts/write")}
+            type="button"
           >
-            + 글쓰기
+            ✏️ 글쓰기
           </button>
-        </header>
+        </div>
 
-        <section className="posts-title">
-          <h1>우리동네 소식</h1>
-          <p>
-            이웃들과 유용한 생활 정보를 공유해보세요.
-          </p>
-        </section>
+        {/* Search & Sort */}
+        <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
+          <div className="search-box" style={{ flex: 1, minWidth: "260px" }}>
+            <span>🔍</span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="제목이나 내용으로 검색해보세요"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                style={{ background: "transparent", border: "none", color: "#999", cursor: "pointer" }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
 
-        <section className="search-section">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="게시글을 검색해주세요"
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <button
+              type="button"
+              className={sort === "latest" ? "category active" : "category"}
+              style={{ margin: 0 }}
+              onClick={() => setSort("latest")}
+            >
+              최신순
+            </button>
+            <button
+              type="button"
+              className={sort === "popular" ? "category active" : "category"}
+              style={{ margin: 0 }}
+              onClick={() => setSort("popular")}
+            >
+              인기순
+            </button>
+          </div>
+        </div>
 
-          <button onClick={loadPosts}>
-            검색
-          </button>
-        </section>
-
-        <section className="category-section">
-          {[
-            "전체",
-            "맛집",
-            "카페",
-            "행사",
-            "생활정보",
-            "기타",
-          ].map((item) => (
+        {/* Categories */}
+        <div className="categories" style={{ marginTop: "10px", marginBottom: "30px" }}>
+          {CATEGORIES.map((item) => (
             <button
               key={item}
               type="button"
-              className={
-                category === item
-                  ? "category active"
-                  : "category"
-              }
+              className={category === item ? "category active" : "category"}
               onClick={() => setCategory(item)}
             >
               {item}
             </button>
           ))}
-        </section>
+        </div>
 
+        {/* Posts Count */}
+        <div style={{ marginBottom: "16px", color: "#888", fontSize: "13px", fontWeight: 600 }}>
+          총 {filteredPosts.length}개의 소식
+        </div>
+
+        {/* List */}
         {loading ? (
           <div className="empty">
-            게시글을 불러오는 중입니다...
+            <div>⏳</div>
+            <h3>소식을 불러오는 중입니다...</h3>
           </div>
         ) : filteredPosts.length === 0 ? (
           <div className="empty">
-            검색 결과가 없습니다.
+            <div>🔍</div>
+            <h3>등록된 게시글이 없습니다</h3>
+            <p>첫 번째 동네 소식을 등록해보세요!</p>
+            <button
+              type="button"
+              className="write-button"
+              style={{ marginTop: "20px" }}
+              onClick={() => router.push("/posts/write")}
+            >
+              첫 글 작성하기
+            </button>
           </div>
         ) : (
-          <section className="post-list">
+          <div className="post-grid">
             {filteredPosts.map((post) => (
-              <button
-                key={post._id}
-                className="post-card"
-                onClick={() =>
-                  router.push(`/posts/${post._id}`)
-                }
-              >
-                <div className="post-card-content">
-                  <span className="post-category">
-                    {post.category}
-                  </span>
-
-                  <h2>{post.title}</h2>
-
-                  <p>
-                    {post.content.length > 120
-                      ? `${post.content.substring(0, 120)}...`
-                      : post.content}
-                  </p>
-
-                  <div className="post-meta">
-                    <span>
-                      {post.author?.nickname || "알 수 없음"}
-                    </span>
-
-                    <span>
-                      {new Date(
-                        post.createdAt
-                      ).toLocaleDateString("ko-KR")}
-                    </span>
-
-                    <span>
-                      ❤️ {post.likeCount || 0}
-                    </span>
-                  </div>
-                </div>
-              </button>
+              <PostCard key={post.id || post._id} post={post} />
             ))}
-          </section>
+          </div>
         )}
       </div>
+
+      <Footer />
     </main>
   );
 }
